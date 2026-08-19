@@ -1,0 +1,3 @@
+(test
+ (name test_ragdoll_lang)
+ (libraries ragdoll_lang))

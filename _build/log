@@ -1,0 +1,6 @@
+# dune init project ragdoll_lang
+# OCAMLPARAM: unset
+# Shared cache: enabled-except-user-rules
+# Shared cache location: /home/rem/.cache/dune/db
+# Workspace root: /home/rem/Dev/Lang/ragdoll_lang
+# Auto-detected concurrency: 16
