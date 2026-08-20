@@ -172,7 +172,26 @@ let advance state =
     ) else
       state.column <- state.column + 1
 
-let rec lex_number state : (Token.t, string) result =
+let skip_line_comment state =
+  while state.position < String.length state.input && state.input.[state.position] <> '\n' do
+    advance state
+  done
+
+let skip_block_comment state =
+  let rec loop i = 
+    if i >= String.length state.input then
+      Error "Unterminated block comment"
+    
+    (* if we see a */, we have a terminator *)
+    else if state.input.[i] = '*' && i + 1 < String.length state.input && state.input.[i + 1] = '/' then (
+      state.position <- i + 2;
+      Ok ()
+    ) else
+      loop (i + 1)
+  in
+  loop state.position
+
+let lex_number state : (Token.t, string) result =
   let start_pos = state.position in
   let start_line = state.line in
   let start_column = state.column in
@@ -203,7 +222,7 @@ let lex_char state : (Token.t, string) result =
     ) else
       Error "Expected closing single quote for char literal"
 
-let rec lex_string state : (Token.t, string) result =
+let lex_string state : (Token.t, string) result =
   let start_pos = state.position in
   advance state; (* skip the opening quote *)
 
@@ -218,7 +237,7 @@ let rec lex_string state : (Token.t, string) result =
     advance state; (* skip the closing quote *)
     Ok (create_token (Token.String str_val) state.line state.column)
 
-let rec lex_ident_or_keyword state : (Token.t, string) result =
+let lex_ident_or_keyword state : (Token.t, string) result =
   let start_pos = state.position in
 
   while state.position < String.length state.input && (is_alpha state.input.[state.position] || is_digit state.input.[state.position]) do
@@ -287,7 +306,17 @@ let rec lex state : (Token.t, string) result =
             else
               emit_single_token state Token.Minus
     | '*' -> emit_single_token state Token.Star
-    | '/' -> emit_single_token state Token.Slash
+    | '/' -> if state.position + 1 < String.length state.input && state.input.[state.position + 1] = '/' then (
+              (* line comment: skip it *)
+              skip_line_comment state;
+              lex state
+            ) else if state.position + 1 < String.length state.input && state.input.[state.position + 1] = '*' then (
+              (* block comment: skip it *)
+              match skip_block_comment state with
+              | Ok () -> lex state
+              | Error msg -> Error msg
+            ) else
+              emit_single_token state Token.Slash
     | '%' -> emit_single_token state Token.Percent
     | '(' -> emit_single_token state Token.LParen
     | ')' -> emit_single_token state Token.RParen

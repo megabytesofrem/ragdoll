@@ -1,7 +1,7 @@
 open Ragdoll
 
 let () =
-  let input = "let x : i32 = 42" in
+  let input = "//let x : i32 = 42" in
   match Lexer.do_lex input with
   | Ok tokens ->
       List.iter

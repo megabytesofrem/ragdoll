@@ -1,6 +1,16 @@
-# dune init project ragdoll_lang
+# dune utop
 # OCAMLPARAM: unset
 # Shared cache: enabled-except-user-rules
 # Shared cache location: /home/rem/.cache/dune/db
 # Workspace root: /home/rem/Dev/Lang/ragdoll_lang
 # Auto-detected concurrency: 16
+# Dune context:
+#  { name = "default"
+#  ; kind = "default"
+#  ; profile = Dev
+#  ; merlin = true
+#  ; fdo_target_exe = None
+#  ; build_dir = In_build_dir "default"
+#  ; instrument_with = []
+#  }
+$ /run/current-system/sw/bin/ocamlc.opt -config > /tmp/dune_26a54e_output
