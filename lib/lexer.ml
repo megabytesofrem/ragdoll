@@ -5,7 +5,7 @@
 module Token = struct
   type token_kind =
     | EOF
-    | Int of int
+    | Int of int64
     | Float of float
     | String of string
     | Char of char
@@ -191,7 +191,7 @@ let skip_block_comment state =
   in
   loop state.position
 
-let lex_number state : (Token.t, string) result =
+let lex_integer state : (Token.t, string) result =
   let start_pos = state.position in
   let start_line = state.line in
   let start_column = state.column in
@@ -203,7 +203,60 @@ let lex_number state : (Token.t, string) result =
 
   (* extract the number string and return a token *)
   let num_str = String.sub state.input start_pos (state.position - start_pos) in
-  Ok (create_token (Token.Int (int_of_string num_str)) start_line start_column)
+  Ok (create_token (Token.Int (Int64.of_string num_str)) start_line start_column)
+
+let lex_float state : (Token.t, string) result =
+  let start_pos = state.position in
+  let start_line = state.line in
+  let start_column = state.column in
+
+  (* consume digits before the dot *)
+  while state.position < String.length state.input && is_digit state.input.[state.position] do
+    advance state
+  done;
+
+  (* expect a dot *)
+  if state.position < String.length state.input && state.input.[state.position] = '.' then (
+    advance state; (* consume the dot *)
+
+    (* consume digits after the dot *)
+    while state.position < String.length state.input && is_digit state.input.[state.position] do
+      advance state
+    done;
+
+    (* extract the float string and return a token *)
+    let float_str = String.sub state.input start_pos (state.position - start_pos) in
+    Ok (create_token (Token.Float (float_of_string float_str)) start_line start_column)
+  ) else
+    Error "Expected '.' for float literal"
+
+let lex_numeric state : (Token.t, string) result =
+  let start_pos = state.position in
+  let start_line = state.line in
+  let start_column = state.column in
+
+  (* consume digits before the dot *)
+  while state.position < String.length state.input && is_digit state.input.[state.position] do
+    advance state
+  done;
+
+  (* check if we have a dot for float *)
+  if state.position < String.length state.input && state.input.[state.position] = '.' then (
+    advance state; (* consume the dot *)
+
+    (* consume digits after the dot *)
+    while state.position < String.length state.input && is_digit state.input.[state.position] do
+      advance state
+    done;
+
+    (* extract the float string and return a token *)
+    let float_str = String.sub state.input start_pos (state.position - start_pos) in
+    Ok (create_token (Token.Float (float_of_string float_str)) start_line start_column)
+  ) else (
+    (* no dot, treat as integer *)
+    let int_str = String.sub state.input start_pos (state.position - start_pos) in
+    Ok (create_token (Token.Int (Int64.of_string int_str)) start_line start_column)
+  )
 
 let lex_char state : (Token.t, string) result =
   let start_line = state.line in
@@ -357,7 +410,7 @@ let rec lex state : (Token.t, string) result =
         else
           emit_single_token state Token.Greater
 
-    | '0' .. '9' -> lex_number state
+    | '0' .. '9' -> lex_numeric state
     | '\'' -> lex_char state
     | '"'  -> lex_string state
 

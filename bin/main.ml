@@ -1,16 +1,15 @@
 open Ragdoll
 
 let () =
-  let input = "//let x : i32 = 42" in
+  let input = "42 + 3 * f(4, 3.14)" in
   match Lexer.do_lex input with
-  | Ok tokens ->
-      List.iter
-        (fun (token : Lexer.Token.t) ->
-          Printf.printf "Token: kind=%s, line=%d, column=%d\n"
-            (Lexer.tokenkind_to_string token.kind)
-            token.line
-            token.column)
-        tokens
+  | Ok tokens -> (
+    let parser = Parser.create_parser tokens in
+    let result = Parser.parse_expr parser in
+    match result with
+    | Ok ast -> Printf.printf "Parsed AST: %s\n" (Ast.Expr.to_string ast)
+    | Error err -> Printf.printf "Parser error: %s\n" (Parser.error_to_string err)
+  )
   | Error msg ->
       prerr_endline msg
 
