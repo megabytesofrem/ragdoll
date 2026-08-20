@@ -1,4 +1,4 @@
 (executable
- (public_name ragdoll_lang)
+ (public_name ragdoll)
  (name main)
- (libraries ragdoll_lang))
+ (libraries ragdoll))

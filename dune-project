@@ -1,6 +1,6 @@
 (lang dune 3.21)
 
-(name ragdoll_lang)
+(name ragdoll)
 
 (generate_opam_files true)
 
@@ -16,7 +16,7 @@
 (documentation https://url/to/documentation)
 
 (package
- (name ragdoll_lang)
+ (name ragdoll)
  (synopsis "A short synopsis")
  (description "A longer description")
  (depends ocaml)
