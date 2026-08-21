@@ -4,34 +4,34 @@
 
 open Result.Syntax
 
-module Parser = struct
-  type state = {
-    tokens: Lexer.Token.t array;
-    mutable position: int;
-  }
+type parser_state = {
+  tokens: Lexer.Token.t array;
+  mutable position: int;
+}
 
-  type prec = int
+type precedence = int
 
-  type error =
-    | ExpectedIdent of { line: int; column: int }
-    | ExpectedType of { line: int; column: int }
+type parse_error =
+  | ExpectedIdent of { line: int; column: int }
+  | ExpectedType of { line: int; column: int }
 
-    | UnexpectedToken of {
-        expected: Lexer.Token.token_kind;
-        found: Lexer.Token.token_kind;
-        line: int;
-        column: int;
-      }
-    | UnexpectedTokens of {
-        expected: Lexer.Token.token_kind list;
-        found: Lexer.Token.token_kind;
-        line: int;
-        column: int;
-      }
-    | UnexpectedEndOfInput
-end
+  | UnexpectedToken of {
+      expected: Lexer.Token.token_kind;
+      found: Lexer.Token.token_kind;
+      line: int;
+      column: int;
+    }
+  | UnexpectedTokens of {
+      expected: Lexer.Token.token_kind list;
+      found: Lexer.Token.token_kind;
+      line: int;
+      column: int;
+    }
+  | UnexpectedEndOfInput
 
-let error_to_string (err: Parser.error) : string =
+type 'a parse_result = ('a, parse_error) result
+
+let error_to_string (err: parse_error) : string =
   match err with
   | ExpectedIdent { line; column } ->
       Printf.sprintf "Expected identifier at line %d, column %d" line column
@@ -51,7 +51,7 @@ let error_to_string (err: Parser.error) : string =
   | UnexpectedEndOfInput ->
       "Unexpected end of input"
 
-let precedence_for_token (token: Lexer.Token.token_kind) : Parser.prec =
+let precedence_for_token (token: Lexer.Token.token_kind) : precedence =
   let open Lexer.Token in
 
   match token with
@@ -63,7 +63,7 @@ let precedence_for_token (token: Lexer.Token.token_kind) : Parser.prec =
   | Greater | GreaterEqual -> 50
   | _ -> 0
 
-let next_higher (prec: Parser.prec) : Parser.prec =
+let next_higher (prec: precedence) : precedence =
   match prec with
   | 0 -> 10
   | 10 -> 20
@@ -71,49 +71,49 @@ let next_higher (prec: Parser.prec) : Parser.prec =
   | 40 -> 50
   | _ -> prec + 10
 
-let create_parser (tokens: Lexer.Token.t list) : Parser.state =
+let create_parser (tokens: Lexer.Token.t list) : parser_state =
   { tokens = Array.of_list tokens; position = 0 }
 
-let peek (state: Parser.state) : Lexer.Token.t option =
+let peek (state: parser_state) : Lexer.Token.t option =
   if state.position < Array.length state.tokens then
     Some state.tokens.(state.position)
   else
     None
 
-let next (state: Parser.state) : Lexer.Token.t option =
+let next (state: parser_state) : Lexer.Token.t option =
   match peek state with
   | Some _ as tok ->
       state.position <- state.position + 1;
       tok
   | None -> None
 
-let expect (state: Parser.state) (expected_kind: Lexer.Token.token_kind) :
-    (Lexer.Token.t, Parser.error) result =
+let expect (state: parser_state) (expected_kind: Lexer.Token.token_kind) :
+    Lexer.Token.t parse_result =
   match next state with
   | Some token when token.kind = expected_kind -> Ok token
   | Some token ->
       Error
-        (Parser.UnexpectedToken
+        (UnexpectedToken
            { expected = expected_kind;
              found = token.kind;
              line = token.line;
              column = token.column })
-  | None -> Error Parser.UnexpectedEndOfInput
+  | None -> Error UnexpectedEndOfInput
 
 (*************************************************
  * Expression parsing -- pratt precedence climbing 
  *************************************************)
 
-let token_to_binop (token: Lexer.Token.token_kind) : Ast.BinaryOp.t option =
-  let open Ast.BinaryOp in
+let token_to_binop (token: Lexer.Token.token_kind) : Ast.binop option =
+  let open Ast in
   let open Lexer.Token in
 
   match token with
   | Plus -> Some Add
-  | Minus -> Some Subtract
-  | Star -> Some Multiply
-  | Slash -> Some Divide
-  | Percent -> Some Modulo
+  | Minus -> Some Sub
+  | Star -> Some Mul
+  | Slash -> Some Div
+  | Percent -> Some Mod
   | Equal -> Some Equal
   | NotEqual -> Some NotEqual
   | Less -> Some Less
@@ -122,15 +122,15 @@ let token_to_binop (token: Lexer.Token.token_kind) : Ast.BinaryOp.t option =
   | GreaterEqual -> Some GreaterEqual
   | _ -> None
 
-let token_to_unaryop (token: Lexer.Token.token_kind) : Ast.UnaryOp.t option =
-  let open Ast.UnaryOp in
+let token_to_unop (token: Lexer.Token.token_kind) : Ast.unop option =
+  let open Ast in
   let open Lexer.Token in
   
   match token with
   | Minus -> Some Negate
   | _ -> None
 
-let parse_literal (state: Parser.state) : (Ast.literal, Parser.error) result =
+let parse_literal (state: parser_state) : Ast.literal parse_result =
   let open Lexer in
 
   let valid_tokens = [
@@ -148,19 +148,19 @@ let parse_literal (state: Parser.state) : (Ast.literal, Parser.error) result =
       | Token.Char v   -> Ok (Ast.Char v)
       | _ ->
           Error
-            (Parser.UnexpectedTokens
+            (UnexpectedTokens
                { expected = valid_tokens;
                  found = token.kind;
                  line = token.line;
                  column = token.column }))
-  | None -> Error Parser.UnexpectedEndOfInput
+  | None -> Error UnexpectedEndOfInput
 
 
-(* Parse an expression, yielding a (Ast.Expr.t, Parser.error) result pair *)
-let rec parse_expr (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
+(* Parse an expression, yielding a (Ast.expr, Parser.error) result pair *)
+let rec parse_expr (state: parser_state) : Ast.expr parse_result =
   parse_expr_impl state 0
 
-and parse_expr_impl (state: Parser.state) (prec: Parser.prec) : (Ast.Expr.t, Parser.error) result =
+and parse_expr_impl (state: parser_state) (prec: precedence) : Ast.expr parse_result =
   let* lhs = parse_prefix state in
   let rec loop lhs =
     match peek state with
@@ -171,19 +171,19 @@ and parse_expr_impl (state: Parser.state) (prec: Parser.prec) : (Ast.Expr.t, Par
   in
   loop lhs
 
-and parse_unary (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
+and parse_unary (state: parser_state) : Ast.expr parse_result =
   let* token = match next state with
     | Some t -> Ok t
-    | None -> Error Parser.UnexpectedEndOfInput
+    | None -> Error UnexpectedEndOfInput
   in
-  let op = match token_to_unaryop token.kind with
+  let op = match token_to_unop token.kind with
     | Some op -> op
     | None -> failwith "Expected unary operator"
   in
   let* expr = parse_expr_impl state 80 in
-  Ok (Ast.Expr.UnaryOp { op; expr })
+  Ok (Ast.EUnaryOp { op; expr })
 
-and parse_prefix (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
+and parse_prefix (state: parser_state) : Ast.expr parse_result =
   let open Lexer in
 
   match peek state with
@@ -194,19 +194,19 @@ and parse_prefix (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
           parse_value state
       | Token.Ident name ->
           let _ = next state in
-          Ok (Ast.Expr.Variable name)
+          Ok (Ast.EVariable name)
       | Token.Minus ->
           parse_unary state
       | _ ->
           Error
-            (Parser.UnexpectedToken
+            (UnexpectedToken
                { expected = token.kind;
                  found = token.kind;
                  line = token.line;
                  column = token.column }))
-  | None -> Error Parser.UnexpectedEndOfInput
+  | None -> Error UnexpectedEndOfInput
 
-and parse_value (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
+and parse_value (state: parser_state) : Ast.expr parse_result =
   let open Lexer in
 
   match peek state with
@@ -215,12 +215,12 @@ and parse_value (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
       | Token.Int _ | Token.Float _ | Token.String _
       | Token.Char _ -> 
         let* lit = parse_literal state in
-        Ok (Ast.Expr.Literal lit)
+        Ok (Ast.ELiteral lit)
       | Token.Minus -> 
           parse_unary state
       | Token.Ident name ->
           let _ = next state in
-          Ok (Ast.Expr.Variable name)
+          Ok (Ast.EVariable name)
       | Token.LParen ->
           let _ = next state in
           let* expr = parse_expr_impl state 0 in
@@ -231,22 +231,22 @@ and parse_value (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
       | Token.Extend ->
           parse_extend state
       | _ -> failwith "parse_value not implemented for this token kind")
-  | None -> Error Parser.UnexpectedEndOfInput
+  | None -> Error UnexpectedEndOfInput
 
-and parse_infix (state: Parser.state) (lhs: Ast.Expr.t) (prec: Parser.prec) : (Ast.Expr.t, Parser.error) result =
+and parse_infix (state: parser_state) (lhs: Ast.expr) (prec: precedence) : Ast.expr parse_result =
   let open Lexer in
   
   let* token = match next state with
     | Some t -> Ok t
-    | None -> Error Parser.UnexpectedEndOfInput
+    | None -> Error UnexpectedEndOfInput
   in
   match token.kind with
   | Token.LParen ->
       let* args = parse_argument_list state in
-      Ok (Ast.Expr.Call { fn = lhs; args })
+      Ok (Ast.ECall { fn = lhs; args })
   | Token.Equal ->
       let* rhs = parse_expr_impl state (next_higher prec) in
-      Ok (Ast.Expr.Assign { target = lhs; value = rhs })
+      Ok (Ast.EAssign { target = lhs; value = rhs })
 
   (* Parse binary operator *)
   | _ when token_to_binop token.kind <> None ->
@@ -255,12 +255,12 @@ and parse_infix (state: Parser.state) (lhs: Ast.Expr.t) (prec: Parser.prec) : (A
         | None -> failwith "Expected binary operator"
       in
       let* rhs = parse_expr_impl state (next_higher prec) in
-      Ok (Ast.Expr.BinaryOp { left = lhs; op; right = rhs })
+      Ok (Ast.EBinaryOp { left = lhs; op; right = rhs })
 
   (* Unexpected token *)
-  | _ -> Error (Parser.UnexpectedToken { expected = token.kind; found = token.kind; line = token.line; column = token.column })
+  | _ -> Error (UnexpectedToken { expected = token.kind; found = token.kind; line = token.line; column = token.column })
 
-and parse_argument_list (state: Parser.state) : (Ast.Expr.t list, Parser.error) result =
+and parse_argument_list (state: parser_state) : (Ast.expr list) parse_result =
   let rec aux acc =
     match peek state with
     | Some token when token.kind = Lexer.Token.RParen ->
@@ -278,23 +278,23 @@ and parse_argument_list (state: Parser.state) : (Ast.Expr.t list, Parser.error) 
             Ok (List.rev acc)
         | Some token ->
             Error
-              (Parser.UnexpectedToken
+              (UnexpectedToken
                  { expected = Lexer.Token.Comma;
                    found = token.kind;
                    line = token.line;
                    column = token.column })
-        | None -> Error Parser.UnexpectedEndOfInput)
-    | None -> Error Parser.UnexpectedEndOfInput
+        | None -> Error UnexpectedEndOfInput)
+    | None -> Error UnexpectedEndOfInput
   in
   aux []
 
 (* ************************************************* *)
 
-and parse_ty (state: Parser.state) : (Ast.Ty.t, Parser.error) result =
+and parse_ty (state: parser_state) : Ast.Ty.t parse_result =
   let open Lexer in
   let* token = match next state with
     | Some t -> Ok t
-    | None -> Error Parser.UnexpectedEndOfInput
+    | None -> Error UnexpectedEndOfInput
   in
   match token.kind with
   | Token.Int _     -> Ok Ast.Ty.I32
@@ -308,32 +308,32 @@ and parse_ty (state: Parser.state) : (Ast.Ty.t, Parser.error) result =
     let* _ = expect state Token.In in
     let* region_id = parse_region_id state in
     Ok (Ast.Ty.Pointer { target = inner_ty; region = region_id })
-  | _ -> Error (Parser.ExpectedType { line = token.line; column = token.column })
+  | _ -> Error (ExpectedType { line = token.line; column = token.column })
 
-and parse_ident (state: Parser.state) : (string, Parser.error) result =
+and parse_ident (state: parser_state) : string parse_result =
   let* token = match next state with
     | Some t -> Ok t
-    | None -> Error Parser.UnexpectedEndOfInput
+    | None -> Error UnexpectedEndOfInput
   in
   match token.kind with
   | Lexer.Token.Ident id -> Ok id
-  | _ -> Error (Parser.ExpectedIdent { line = token.line; column = token.column })
+  | _ -> Error (ExpectedIdent { line = token.line; column = token.column })
 
-and parse_region_id (state: Parser.state) : (string, Parser.error) result =
+and parse_region_id (state: parser_state) : string parse_result =
   let* token = match next state with
     | Some t -> Ok t
-    | None -> Error Parser.UnexpectedEndOfInput
+    | None -> Error UnexpectedEndOfInput
   in
   match token.kind with
   | Lexer.Token.Ident id -> Ok id
-  | _ -> Error (Parser.ExpectedIdent { line = token.line; column = token.column })
+  | _ -> Error (ExpectedIdent { line = token.line; column = token.column })
 
-and parse_reference (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
+and parse_reference (state: parser_state) : Ast.expr parse_result =
   let* _ = expect state Lexer.Token.Ampersand in
   let* ident = parse_ident state in
-  Ok (Ast.Expr.Variable ("&" ^ ident))
+  Ok (Ast.EVariable ("&" ^ ident))
 
-and parse_arrow (state: Parser.state) : ((Ast.Ty.region_id * Ast.Ty.region_id), Parser.error) result =
+and parse_arrow (state: parser_state) : (Ast.Ty.region_id * Ast.Ty.region_id) parse_result =
   (* ~a -> ~b *)
   let* _ = expect state Lexer.Token.Tilde in
   let* from_region = parse_region_id state in
@@ -342,29 +342,29 @@ and parse_arrow (state: Parser.state) : ((Ast.Ty.region_id * Ast.Ty.region_id), 
   let* to_region = parse_region_id state in
   Ok (from_region, to_region)
 
-and parse_restrict (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
+and parse_restrict (state: parser_state) : Ast.expr parse_result =
   let* _ = expect state Lexer.Token.Restrict in
   let* from_exp = parse_expr_impl state 0 in
 
   (* ~a -> ~b *)
   let* arr = parse_arrow state in
   let (from_region, to_region) = arr in
-  Ok (Ast.Expr.Restrict { expr = from_exp; source = from_region; target = to_region })
+  Ok (Ast.ERestrict { expr = from_exp; source = from_region; target = to_region })
 
-and parse_extend (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
+and parse_extend (state: parser_state) : Ast.expr parse_result =
   let* _ = expect state Lexer.Token.Extend in
   let* from_exp = parse_expr_impl state 0 in
 
   (* ~a -> ~b *)
   let* arr = parse_arrow state in
   let (from_region, to_region) = arr in
-  Ok (Ast.Expr.Extend { expr = from_exp; source = from_region; target = to_region })
+  Ok (Ast.EExtend { expr = from_exp; source = from_region; target = to_region })
 
 (* *************************************************
  * Statement parsing
  ************************************************** *)
 
-and parse_block (state: Parser.state) : (Ast.Stmt.t list, Parser.error) result =
+and parse_block (state: parser_state) : Ast.stmt list parse_result =
   let* _ = expect state Lexer.Token.LBrace in
   let rec aux acc =
     match peek state with
@@ -374,11 +374,11 @@ and parse_block (state: Parser.state) : (Ast.Stmt.t list, Parser.error) result =
     | Some _ ->
         let* stmt = parse_stmt state in
         aux (stmt :: acc)
-    | None -> Error Parser.UnexpectedEndOfInput
+    | None -> Error UnexpectedEndOfInput
   in
   aux []
 
-and parse_let (state: Parser.state) : (Ast.Stmt.t, Parser.error) result =
+and parse_let (state: parser_state) : Ast.stmt parse_result =
   let* _ = expect state Lexer.Token.Let in
   let* name = parse_ident state in
   let* ty = match peek state with
@@ -390,9 +390,9 @@ and parse_let (state: Parser.state) : (Ast.Stmt.t, Parser.error) result =
   in
   let* _ = expect state Lexer.Token.Equal in
   let* value = parse_expr_impl state 0 in
-  Ok (Ast.Stmt.Let { name; ty; value })
+  Ok (Ast.SLet { name; ty; value })
 
-and parse_for (state: Parser.state) : (Ast.Stmt.t, Parser.error) result =
+and parse_for (state: parser_state) : Ast.stmt parse_result =
   (* for var in iterable { .. }*)
   let* _ = expect state Lexer.Token.For in
   let* var = parse_ident state in
@@ -400,17 +400,17 @@ and parse_for (state: Parser.state) : (Ast.Stmt.t, Parser.error) result =
   let* iterable = parse_expr_impl state 0 in
   let* _ = expect state Lexer.Token.LBrace in
   let* body = parse_block state in
-  Ok (Ast.Stmt.For { var; iterable; body })
+  Ok (Ast.SFor { var; iterable; body })
 
-and parse_while (state: Parser.state) : (Ast.Stmt.t, Parser.error) result =
+and parse_while (state: parser_state) : Ast.stmt parse_result =
   (* while condition { .. } *)
   let* _ = expect state Lexer.Token.While in
   let* condition = parse_expr_impl state 0 in
   let* _ = expect state Lexer.Token.LBrace in
   let* body = parse_block state in
-  Ok (Ast.Stmt.While { condition; body })
+  Ok (Ast.SWhile { condition; body })
 
-and parse_stmt (state: Parser.state) : (Ast.Stmt.t, Parser.error) result =
+and parse_stmt (state: parser_state) : Ast.stmt parse_result =
   match peek state with
   | Some token -> (
       match token.kind with
@@ -420,5 +420,5 @@ and parse_stmt (state: Parser.state) : (Ast.Stmt.t, Parser.error) result =
       | _ ->
           (* Expression in statement place *)
           let* expr = parse_expr_impl state 0 in
-          Ok (Ast.Stmt.Expr expr))
-  | None -> Error Parser.UnexpectedEndOfInput
+          Ok (Ast.SExpr expr))
+  | None -> Error (UnexpectedEndOfInput)

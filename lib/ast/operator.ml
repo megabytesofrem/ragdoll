@@ -1,37 +1,33 @@
-module UnaryOp = struct
-  type t =
-    | Negate
+type unop =
+  | Negate
 
-  let to_string (op: t) : string =
-    match op with
-    | Negate -> "-"
-end
+type binop =
+  | Add
+  | Sub
+  | Mul
+  | Div
+  | Mod
+  | Equal
+  | NotEqual
+  | Less
+  | LessEqual
+  | Greater
+  | GreaterEqual
 
-module BinaryOp = struct
-  type t =
-    | Add
-    | Subtract
-    | Multiply
-    | Divide
-    | Modulo
-    | Equal
-    | NotEqual
-    | Less
-    | LessEqual
-    | Greater
-    | GreaterEqual
+let unop_to_string (op: unop) : string =
+  match op with
+  | Negate -> "-"
 
-  let to_string (op: t) : string =
-    match op with
-    | Add -> "+"
-    | Subtract -> "-"
-    | Multiply -> "*"
-    | Divide -> "/"
-    | Modulo -> "%"
-    | Equal -> "=="
-    | NotEqual -> "!="
-    | Less -> "<"
-    | LessEqual -> "<="
-    | Greater -> ">"
-    | GreaterEqual -> ">="
-end
+let binop_to_string (op: binop) : string =
+  match op with
+  | Add -> "+"
+  | Sub -> "-"
+  | Mul -> "*"
+  | Div -> "/"
+  | Mod -> "%"
+  | Equal -> "=="
+  | NotEqual -> "!="
+  | Less -> "<"
+  | LessEqual -> "<="
+  | Greater -> ">"
+  | GreaterEqual -> ">="

@@ -9,6 +9,8 @@ type t =
   | Char
   | Unit
   | Named of string
+
+  (* pointer type: with an attached region *)
   | Pointer of { target: t; region: region_id }
 
 let rec to_string (ty: t) : string =

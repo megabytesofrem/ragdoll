@@ -1,9 +1,9 @@
-(* Bring BinaryOp and UnaryOp into scope *)
-module BinaryOp = Operator.BinaryOp
-module UnaryOp = Operator.UnaryOp
-
 (* Bring Types into scope *)
 module Ty = Types
+
+(* Aliases for parsing *)
+type unop = Operator.unop
+type binop = Operator.binop
 
 type literal =
   | Uint of int64
@@ -12,122 +12,109 @@ type literal =
   | String of string
   | Char of char
 
-module Pattern = struct
-  type t =
-    | Wildcard
-    | Literal of literal
-    | Variable of string
-    | Constructor of string * t list
-    | Tuple of t list
-    | List of t list
-    | Or of t * t
-    | And of t * t
+type pattern =
+  | PWildcard
+  | PLiteral of literal
+  | PVariable of string
+  | PConstructor of string * pattern list
+  | PTuple of pattern list
+  | PList of pattern list
+  | POr of pattern * pattern
+  | PAnd of pattern * pattern
 
-  let rec to_string (pat: t) : string =
-    match pat with
-    | Wildcard -> "_"
-    | Literal lit -> (
-        match lit with
-        | Uint v -> Printf.sprintf "%Lu" v
-        | Int v -> Printf.sprintf "%Ld" v
-        | Float v -> Printf.sprintf "%f" v
-        | String v -> Printf.sprintf "\"%s\"" v
-        | Char v -> Printf.sprintf "'%c'" v
-      )
-    | Variable name -> name
-    | Constructor (name, args) ->
-        let args_str = String.concat ", " (List.map to_string args) in
-        Printf.sprintf "%s(%s)" name args_str
-    | Tuple elems ->
-        let elems_str = String.concat ", " (List.map to_string elems) in
-        Printf.sprintf "(%s)" elems_str
-    | List elems ->
-        let elems_str = String.concat ", " (List.map to_string elems) in
-        Printf.sprintf "[%s]" elems_str
-    | Or (p1, p2) ->
-        Printf.sprintf "(%s | %s)" (to_string p1) (to_string p2)
-    | And (p1, p2) ->
-        Printf.sprintf "(%s & %s)" (to_string p1) (to_string p2)
-end
+type expr =
+  | ELiteral of literal
+  | EVariable of string
+  | EBinaryOp of { left: expr; op: binop; right: expr }
+  | EUnaryOp of { op: unop; expr: expr }
+  | EAssign of { target: expr; value: expr }
+  | EConstructor of { name: string; args: expr list }
+  | ECall of { fn: expr; args: expr list }
+  | EIndex of { target: expr; index: expr }
+  | EMatch of expr * (pattern * expr) list
+  | ERestrict of { expr: expr; source: Ty.region_id; target: Ty.region_id }
+  | EExtend of { expr: expr; source: Ty.region_id; target: Ty.region_id }
 
-module Expr = struct
-  type t =
-    | Literal of literal
-    | Variable of string
-    | BinaryOp of { left: t; op: BinaryOp.t; right: t }
-    | UnaryOp of { op: UnaryOp.t; expr: t }
-    | Assign of { target: t; value: t }
-    | Constructor of { name: string; args: t list }
-    | Call of { fn: t; args: t list }
-    | Index of { target: t; index: t }
-    | Match of t * (Pattern.t * t) list
-    | Restrict of { expr: t; source: Ty.region_id; target: Ty.region_id }
-    | Extend of { expr: t; source: Ty.region_id; target: Ty.region_id }
-
-  let literal_to_string (lit: literal) : string =
-    match lit with
-    | Uint v -> Printf.sprintf "%Lu" v
-    | Int v -> Printf.sprintf "%Ld" v
-    | Float v -> Printf.sprintf "%f" v
-    | String v -> Printf.sprintf "\"%s\"" v
-    | Char v -> Printf.sprintf "'%c'" v
-
-  let rec to_string (expr: t) : string =
-    match expr with
-    | Literal lit -> literal_to_string lit
-    | Variable name -> name
-    | BinaryOp { left; op; right } ->
-        Printf.sprintf "(%s %s %s)" (to_string left) (BinaryOp.to_string op) (to_string right)
-    | UnaryOp { op; expr } ->
-        Printf.sprintf "(%s%s)" (UnaryOp.to_string op) (to_string expr)
-    | Assign { target; value } ->
-        Printf.sprintf "(%s = %s)" (to_string target) (to_string value)
-    | Constructor { name; args } ->
-        let args_str = String.concat ", " (List.map to_string args) in
-        Printf.sprintf "%s(%s)" name args_str
-    | Call { fn; args } ->
-        let args_str = String.concat ", " (List.map to_string args) in
-        Printf.sprintf "%s(%s)" (to_string fn) args_str
-    | Index { target; index } ->
-        Printf.sprintf "%s[%s]" (to_string target) (to_string index)
-    | Match (expr, branches) ->
-        let branches_str =
-          branches |> List.map (fun (pat, branch_expr) ->
-                        Printf.sprintf "| %s => %s" (Pattern.to_string pat) 
-                                                    (to_string branch_expr))
-                   |>  String.concat " "
-        in
-        Printf.sprintf "match %s %s" (to_string expr) branches_str
-    | Restrict { expr; source; target } ->
-        Printf.sprintf "restrict %s : ~%s -> ~%s" (to_string expr) source target
-    | Extend { expr; source; target } ->
-        Printf.sprintf "extend %s : ~%s -> ~%s" (to_string expr) source target
-end
-
-module Stmt = struct
-  type t =
-    | Let of { name: string; ty: Ty.t option; value: Expr.t }
-    | Expr of Expr.t
-    | For of { var: string; iterable: Expr.t; body: t list }
-    | While of { condition: Expr.t; body: t list }
-
-  let rec to_string (stmt: t) : string =
-    match stmt with
-    | Let { name; ty; value } ->
-        let ty_str = match ty with
-          | Some ty -> Printf.sprintf " : %s" (Ty.to_string ty)
-          | None -> ""
-        in
-        Printf.sprintf "let %s%s = %s;" name ty_str (Expr.to_string value)
-    | Expr expr ->
-        Printf.sprintf "%s;" (Expr.to_string expr)
-    | For { var; iterable; body } ->
-        let body_str = String.concat "\n" (List.map to_string body) in
-        Printf.sprintf "for %s in %s {\n%s\n}" var (Expr.to_string iterable) body_str
-    | While { condition; body } ->
-        let body_str = String.concat "\n" (List.map to_string body) in
-        Printf.sprintf "while (%s) {\n%s\n}" (Expr.to_string condition) body_str
-end
+type stmt =
+  | SLet of { name: string; ty: Ty.t option; value: expr }
+  | SExpr of expr
+  | SFor of { var: string; iterable: expr; body: stmt list }
+  | SWhile of { condition: expr; body: stmt list }
 
 type top_level =
-  | Stmt of Stmt.t
+  | TopStmt of stmt
+
+let literal_to_string (lit: literal) : string =
+  match lit with
+  | Uint v -> Printf.sprintf "%Lu" v
+  | Int v -> Printf.sprintf "%Ld" v
+  | Float v -> Printf.sprintf "%f" v
+  | String v -> Printf.sprintf "\"%s\"" v
+  | Char v -> Printf.sprintf "'%c'" v
+
+let rec pattern_to_string (pat: pattern) : string =
+  match pat with
+  | PWildcard -> "_"
+  | PLiteral lit -> literal_to_string lit
+  | PVariable name -> name
+  | PConstructor (name, args) ->
+      let args_str = String.concat ", " (List.map pattern_to_string args) in
+      Printf.sprintf "%s(%s)" name args_str
+  | PTuple elems ->
+      let elems_str = String.concat ", " (List.map pattern_to_string elems) in
+      Printf.sprintf "(%s)" elems_str
+  | PList elems ->
+      let elems_str = String.concat ", " (List.map pattern_to_string elems) in
+      Printf.sprintf "[%s]" elems_str
+  | POr (p1, p2) ->
+      Printf.sprintf "(%s | %s)" (pattern_to_string p1) (pattern_to_string p2)
+  | PAnd (p1, p2) ->
+      Printf.sprintf "(%s & %s)" (pattern_to_string p1) (pattern_to_string p2)
+
+let rec expr_to_string (node: expr) : string =
+  match node with
+  | ELiteral lit -> literal_to_string lit
+  | EVariable name -> name
+  | EBinaryOp { left; op; right } ->
+      Printf.sprintf "(%s %s %s)" (expr_to_string left) (Operator.binop_to_string op) (expr_to_string right)
+  | EUnaryOp { op; expr } ->
+      Printf.sprintf "(%s%s)" (Operator.unop_to_string op) (expr_to_string expr)
+  | EAssign { target; value } ->
+      Printf.sprintf "(%s = %s)" (expr_to_string target) (expr_to_string value)
+  | EConstructor { name; args } ->
+      let args_str = String.concat ", " (List.map expr_to_string args) in
+      Printf.sprintf "%s(%s)" name args_str
+  | ECall { fn; args } ->
+      let args_str = String.concat ", " (List.map expr_to_string args) in
+      Printf.sprintf "%s(%s)" (expr_to_string fn) args_str
+  | EIndex { target; index } ->
+      Printf.sprintf "%s[%s]" (expr_to_string target) (expr_to_string index)
+  | EMatch (expr, branches) ->
+      let branches_str =
+        branches |> List.map (fun (pat, branch_expr) ->
+                      Printf.sprintf "| %s => %s" (pattern_to_string pat)
+                                                  (expr_to_string branch_expr))
+                 |>  String.concat " "
+      in
+      Printf.sprintf "match %s %s" (expr_to_string expr) branches_str
+  | ERestrict { expr; source; target } ->
+      Printf.sprintf "restrict %s : ~%s -> ~%s" (expr_to_string expr) source target
+  | EExtend { expr; source; target } ->
+      Printf.sprintf "extend %s : ~%s -> ~%s" (expr_to_string expr) source target
+
+let rec stmt_to_string (node: stmt) : string =
+  match node with
+  | SLet { name; ty; value } ->
+      let ty_str = match ty with
+        | Some ty -> Printf.sprintf " : %s" (Ty.to_string ty)
+        | None -> ""
+      in
+      Printf.sprintf "let %s%s = %s;" name ty_str (expr_to_string value)
+  | SExpr expr ->
+      Printf.sprintf "%s;" (expr_to_string expr)
+  | SFor { var; iterable; body } ->
+      let body_str = String.concat "\n" (List.map stmt_to_string body) in
+      Printf.sprintf "for %s in %s {\n%s\n}" var (expr_to_string iterable) body_str
+  | SWhile { condition; body } ->
+      let body_str = String.concat "\n" (List.map stmt_to_string body) in
+      Printf.sprintf "while (%s) {\n%s\n}" (expr_to_string condition) body_str

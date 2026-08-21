@@ -1,9 +1,5 @@
 (* Core AST definitions for the Ragdoll language *)
 
-(* Bring BinaryOp and UnaryOp into scope *)
-module BinaryOp = Operator.BinaryOp
-module UnaryOp = Operator.UnaryOp
-
 (* Bring Types into scope *)
 module Ty = Types
 
@@ -11,109 +7,99 @@ module Ty = Types
     and its binding site, counting outwards starting from 0. *)
 type debrujin = int
 
-(* Modules prefixed by C belong to the core_ast, and are lowered during passes *)
+type cvar =
+  | Local of debrujin
+  | Global of string
 
-module CVar = struct
-  type t =
-    | Local of debrujin
-    | Global of string
+type cliteral =
+  | Uint of int64
+  | Int of int64
+  | Float of float
+  | String of string
+  | Char of char
 
-  let to_string (var: t) : string =
-    match var with
-    | Local idx -> Printf.sprintf "Local(%d)" idx
-    | Global name -> Printf.sprintf "Global(%s)" name
-end
+type cpattern =
+  | PWildcard
+  | PLiteral of cliteral
+  | PVariable of cvar
+  | PConstructor of string * cpattern list
+  | PTuple of cpattern list
+  | PList of cpattern list
+  | POr of cpattern * cpattern
+  | PAnd of cpattern * cpattern
 
-module CLiteral = struct
-  type t =
-    | Uint of int64
-    | Int of int64
-    | Float of float
-    | String of string
-    | Char of char
+type cexpr =
+  | ELiteral of cliteral
+  | EVar of cvar
+  | EBinaryOp of { op: Operator.binop; left: cexpr; right: cexpr }
+  | EUnaryOp of { op: Operator.unop; expr: cexpr }
+  | EAssign of { target: cexpr; value: cexpr }
+  | EConstructor of { name: string; args: cexpr list }
+  | ECall of { fn: cexpr; args: cexpr list }
+  | EIndex of { target: cexpr; index: cexpr }
+  | EMatch of cexpr * (cpattern * cexpr) list
+  | ERestrict of { expr: cexpr; source: Ty.region_id; target: Ty.region_id }
+  | EExtend of { expr: cexpr; source: Ty.region_id; target: Ty.region_id }
 
-  let to_string (lit: t) : string =
-    match lit with
-    | Uint v -> Printf.sprintf "%Lu" v
-    | Int v -> Printf.sprintf "%Ld" v
-    | Float v -> Printf.sprintf "%f" v
-    | String v -> Printf.sprintf "\"%s\"" v
-    | Char v -> Printf.sprintf "'%c'" v
-end
+let cvar_to_string (var: cvar) : string =
+  match var with
+  | Local idx -> Printf.sprintf "Local(%d)" idx
+  | Global name -> Printf.sprintf "Global(%s)" name
 
-module CPattern = struct
-  type t =
-    | Wildcard
-    | Literal of CLiteral.t
-    | Variable of CVar.t
-    | Constructor of string * t list
-    | Tuple of t list
-    | List of t list
-    | Or of t * t
-    | And of t * t
+let cliteral_to_string (lit: cliteral) : string =
+  match lit with
+  | Uint v -> Printf.sprintf "%Lu" v
+  | Int v -> Printf.sprintf "%Ld" v
+  | Float v -> Printf.sprintf "%f" v
+  | String v -> Printf.sprintf "\"%s\"" v
+  | Char v -> Printf.sprintf "'%c'" v
 
-  let rec to_string (pat: t) : string =
-    match pat with
-    | Wildcard -> "_"
-    | Literal lit -> CLiteral.to_string lit
-    | Variable var -> CVar.to_string var
-    | Constructor (name, args) ->
-        let args_str = String.concat ", " (List.map to_string args) in
-        Printf.sprintf "%s(%s)" name args_str
-    | Tuple elems ->
-        let elems_str = String.concat ", " (List.map to_string elems) in
-        Printf.sprintf "(%s)" elems_str
-    | List elems ->
-        let elems_str = String.concat ", " (List.map to_string elems) in
-        Printf.sprintf "[%s]" elems_str
-    | Or (p1, p2) ->
-        Printf.sprintf "(%s | %s)" (to_string p1) (to_string p2)
-    | And (p1, p2) ->
-        Printf.sprintf "(%s & %s)" (to_string p1) (to_string p2)
-end
+let rec cpattern_to_string (pat: cpattern) : string =
+  match pat with
+  | PWildcard -> "_"
+  | PLiteral lit -> cliteral_to_string lit
+  | PVariable var -> cvar_to_string var
+  | PConstructor (name, args) ->
+      let args_str = String.concat ", " (List.map cpattern_to_string args) in
+      Printf.sprintf "%s(%s)" name args_str
+  | PTuple elems ->
+      let elems_str = String.concat ", " (List.map cpattern_to_string elems) in
+      Printf.sprintf "(%s)" elems_str
+  | PList elems ->
+      let elems_str = String.concat ", " (List.map cpattern_to_string elems) in
+      Printf.sprintf "[%s]" elems_str
+  | POr (p1, p2) ->
+      Printf.sprintf "(%s | %s)" (cpattern_to_string p1) (cpattern_to_string p2)
+  | PAnd (p1, p2) ->
+      Printf.sprintf "(%s & %s)" (cpattern_to_string p1) (cpattern_to_string p2)
 
-module CExpr = struct
-  type t =
-    | Literal of CLiteral.t
-    | Var of CVar.t
-    | BinaryOp of { op: BinaryOp.t; left: t; right: t }
-    | UnaryOp of { op: UnaryOp.t; expr: t }
-    | Assign of { target: t; value: t }
-    | Constructor of { name: string; args: t list }
-    | Call of { fn: t; args: t list }
-    | Index of { target: t; index: t }
-    | Match of t * (CPattern.t * t) list
-    | Restrict of { expr: t; source: Ty.region_id; target: Ty.region_id }
-    | Extend of { expr: t; source: Ty.region_id; target: Ty.region_id }
-
-  let rec to_string (expr: t) : string =
-    match expr with
-    | Literal lit -> CLiteral.to_string lit
-    | Var var -> CVar.to_string var
-    | BinaryOp { op; left; right } ->
-        Printf.sprintf "(%s %s %s)" (to_string left) (BinaryOp.to_string op) (to_string right)
-    | UnaryOp { op; expr } ->
-        Printf.sprintf "(%s%s)" (UnaryOp.to_string op) (to_string expr)
-    | Assign { target; value } ->
-        Printf.sprintf "(%s = %s)" (to_string target) (to_string value)
-    | Constructor { name; args } ->
-        let args_str = String.concat ", " (List.map to_string args) in
-        Printf.sprintf "%s(%s)" name args_str
-    | Call { fn; args } ->
-        let args_str = String.concat ", " (List.map to_string args) in
-        Printf.sprintf "%s(%s)" (to_string fn) args_str
-    | Index { target; index } ->
-        Printf.sprintf "%s[%s]" (to_string target) (to_string index)
-    | Match (expr, branches) ->
-        let branches_str =
-          branches |> List.map (fun (pat, branch_expr) ->
-                        Printf.sprintf "| %s => %s" (CPattern.to_string pat) 
-                                                    (to_string branch_expr))
-                   |>  String.concat " "
-        in
-        Printf.sprintf "match %s %s" (to_string expr) branches_str
-    | Restrict { expr; source; target } ->
-        Printf.sprintf "restrict %s from %s to %s" (to_string expr) source target
-    | Extend { expr; source; target } ->
-        Printf.sprintf "extend %s from %s to %s" (to_string expr) source target
-end
+let rec cexpr_to_string (node: cexpr) : string =
+  match node with
+  | ELiteral lit -> cliteral_to_string lit
+  | EVar var -> cvar_to_string var
+  | EBinaryOp { op; left; right } ->
+      Printf.sprintf "(%s %s %s)" (cexpr_to_string left) (Operator.binop_to_string op) (cexpr_to_string right)
+  | EUnaryOp { op; expr } ->
+      Printf.sprintf "(%s%s)" (Operator.unop_to_string op) (cexpr_to_string expr)
+  | EAssign { target; value } ->
+      Printf.sprintf "(%s = %s)" (cexpr_to_string target) (cexpr_to_string value)
+  | EConstructor { name; args } ->
+      let args_str = String.concat ", " (List.map cexpr_to_string args) in
+      Printf.sprintf "%s(%s)" name args_str
+  | ECall { fn; args } ->
+      let args_str = String.concat ", " (List.map cexpr_to_string args) in
+      Printf.sprintf "%s(%s)" (cexpr_to_string fn) args_str
+  | EIndex { target; index } ->
+      Printf.sprintf "%s[%s]" (cexpr_to_string target) (cexpr_to_string index)
+  | EMatch (expr, branches) ->
+      let branches_str =
+        branches |> List.map (fun (pat, branch_expr) ->
+                      Printf.sprintf "| %s => %s" (cpattern_to_string pat)
+                                                  (cexpr_to_string branch_expr))
+                 |>  String.concat " "
+      in
+      Printf.sprintf "match %s %s" (cexpr_to_string expr) branches_str
+  | ERestrict { expr; source; target } ->
+      Printf.sprintf "restrict %s from %s to %s" (cexpr_to_string expr) source target
+  | EExtend { expr; source; target } ->
+      Printf.sprintf "extend %s from %s to %s" (cexpr_to_string expr) source target
