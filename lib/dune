@@ -1,2 +1,6 @@
+(include_subdirs qualified)
+
+(dirs ast middle)
+
 (library
  (name ragdoll))

@@ -33,9 +33,9 @@ end
 
 let error_to_string (err: Parser.error) : string =
   match err with
-  | Parser.ExpectedIdent { line; column } ->
+  | ExpectedIdent { line; column } ->
       Printf.sprintf "Expected identifier at line %d, column %d" line column
-  | Parser.ExpectedType { line; column } ->
+  | ExpectedType { line; column } ->
       Printf.sprintf "Expected type at line %d, column %d" line column
   | UnexpectedToken { expected; found; line; column } ->
       Printf.sprintf "Unexpected token at line %d, column %d: expected %s, found %s"
@@ -52,13 +52,15 @@ let error_to_string (err: Parser.error) : string =
       "Unexpected end of input"
 
 let precedence_for_token (token: Lexer.Token.token_kind) : Parser.prec =
+  let open Lexer.Token in
+
   match token with
-  | Lexer.Token.Equal -> 10
-  | Lexer.Token.LParen -> 100
-  | Lexer.Token.Plus | Lexer.Token.Minus -> 40
-  | Lexer.Token.Star | Lexer.Token.Slash | Lexer.Token.Percent -> 50
-  | Lexer.Token.NotEqual | Lexer.Token.Less | Lexer.Token.LessEqual
-  | Lexer.Token.Greater | Lexer.Token.GreaterEqual -> 50
+  | Equal -> 10
+  | LParen -> 100
+  | Plus | Minus -> 40
+  | Star | Slash | Percent -> 50
+  | NotEqual | Less | LessEqual
+  | Greater | GreaterEqual -> 50
   | _ -> 0
 
 let next_higher (prec: Parser.prec) : Parser.prec =
@@ -104,24 +106,28 @@ let expect (state: Parser.state) (expected_kind: Lexer.Token.token_kind) :
 
 let token_to_binop (token: Lexer.Token.token_kind) : Ast.BinaryOp.t option =
   let open Ast.BinaryOp in
+  let open Lexer.Token in
+
   match token with
-  | Lexer.Token.Plus -> Some Add
-  | Lexer.Token.Minus -> Some Subtract
-  | Lexer.Token.Star -> Some Multiply
-  | Lexer.Token.Slash -> Some Divide
-  | Lexer.Token.Percent -> Some Modulo
-  | Lexer.Token.Equal -> Some Equal
-  | Lexer.Token.NotEqual -> Some NotEqual
-  | Lexer.Token.Less -> Some Less
-  | Lexer.Token.LessEqual -> Some LessEqual
-  | Lexer.Token.Greater -> Some Greater
-  | Lexer.Token.GreaterEqual -> Some GreaterEqual
+  | Plus -> Some Add
+  | Minus -> Some Subtract
+  | Star -> Some Multiply
+  | Slash -> Some Divide
+  | Percent -> Some Modulo
+  | Equal -> Some Equal
+  | NotEqual -> Some NotEqual
+  | Less -> Some Less
+  | LessEqual -> Some LessEqual
+  | Greater -> Some Greater
+  | GreaterEqual -> Some GreaterEqual
   | _ -> None
 
 let token_to_unaryop (token: Lexer.Token.token_kind) : Ast.UnaryOp.t option =
   let open Ast.UnaryOp in
+  let open Lexer.Token in
+  
   match token with
-  | Lexer.Token.Minus -> Some Negate
+  | Minus -> Some Negate
   | _ -> None
 
 let parse_literal (state: Parser.state) : (Ast.literal, Parser.error) result =
@@ -327,7 +333,7 @@ and parse_reference (state: Parser.state) : (Ast.Expr.t, Parser.error) result =
   let* ident = parse_ident state in
   Ok (Ast.Expr.Variable ("&" ^ ident))
 
-and parse_arrow (state: Parser.state) : ((Ast.region_id * Ast.region_id), Parser.error) result =
+and parse_arrow (state: Parser.state) : ((Ast.Ty.region_id * Ast.Ty.region_id), Parser.error) result =
   (* ~a -> ~b *)
   let* _ = expect state Lexer.Token.Tilde in
   let* from_region = parse_region_id state in
